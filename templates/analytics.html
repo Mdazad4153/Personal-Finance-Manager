@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+    }
+
+    .stats-card {
+        transition: transform 0.2s;
+    }
+
+    .stats-card:hover {
+        transform: translateY(-5px);
+    }
+
+    @media (max-width: 768px) {
+        .chart-container {
+            height: 250px;
+        }
+        
+        .table-responsive {
+            font-size: 0.9rem;
+        }
+        
+        .card-title {
+            font-size: 1.1rem;
+        }
+        
+        .stats-value {
+            font-size: 1.2rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <!-- Financial Summary Cards -->
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted mb-3">
+                    <i class="fas fa-money-bill-wave me-2"></i>Total Income
+                </h6>
+                <h4 class="stats-value mb-0">₹{{ total_income }}</h4>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted mb-3">
+                    <i class="fas fa-shopping-cart me-2"></i>Total Expenses
+                </h6>
+                <h4 class="stats-value mb-0">₹{{ total_expenses }}</h4>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted mb-3">
+                    <i class="fas fa-piggy-bank me-2"></i>Net Savings
+                </h6>
+                <h4 class="stats-value mb-0">₹{{ net_savings }}</h4>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-12 col-md-6 col-lg-3">
+        <div class="card stats-card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted mb-3">
+                    <i class="fas fa-percentage me-2"></i>Savings Rate
+                </h6>
+                <h4 class="stats-value mb-0">{{ savings_rate }}%</h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="card-title mb-0">Income vs Expenses</h5>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="updateChartData('monthly')">Monthly</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="updateChartData('yearly')">Yearly</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="incomeExpensesChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-4">Expense Categories</h5>
+                <div class="chart-container">
+                    <canvas id="expenseCategoriesChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Monthly Trends Table -->
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title mb-4">Monthly Trends</h5>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Month</th>
+                                <th>Income</th>
+                                <th>Expenses</th>
+                                <th>Savings</th>
+                                <th>Top Category</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for trend in monthly_trends %}
+                            <tr>
+                                <td>{{ trend.month }}</td>
+                                <td>₹{{ trend.income }}</td>
+                                <td>₹{{ trend.expenses }}</td>
+                                <td>₹{{ trend.savings }}</td>
+                                <td>{{ trend.top_category }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let incomeExpensesChart;
+let expenseCategoriesChart;
+
+function initializeCharts() {
+    // Income vs Expenses Chart
+    const incomeExpensesCtx = document.getElementById('incomeExpensesChart').getContext('2d');
+    incomeExpensesChart = new Chart(incomeExpensesCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Income',
+                    backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    data: []
+                },
+                {
+                    label: 'Expenses',
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    data: []
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '₹' + value;
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': ₹' + context.raw;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Expense Categories Chart
+    const expenseCategoriesCtx = document.getElementById('expenseCategoriesChart').getContext('2d');
+    expenseCategoriesChart = new Chart(expenseCategoriesCtx, {
+        type: 'doughnut',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.5)',
+                    'rgba(54, 162, 235, 0.5)',
+                    'rgba(255, 206, 86, 0.5)',
+                    'rgba(75, 192, 192, 0.5)',
+                    'rgba(153, 102, 255, 0.5)'
+                ],
+                borderColor: [
+                    'rgba(255, 99, 132, 1)',
+                    'rgba(54, 162, 235, 1)',
+                    'rgba(255, 206, 86, 1)',
+                    'rgba(75, 192, 192, 1)',
+                    'rgba(153, 102, 255, 1)'
+                ],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.raw || 0;
+                            const percentage = context.parsed || 0;
+                            return `${label}: ₹${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function updateChartData(period) {
+    try {
+        const response = await fetch(`/api/chart-data/${period}`);
+        if (!response.ok) throw new Error('Failed to fetch chart data');
+        const data = await response.json();
+
+        // Update Income vs Expenses Chart
+        incomeExpensesChart.data.labels = data.labels;
+        incomeExpensesChart.data.datasets[0].data = data.income;
+        incomeExpensesChart.data.datasets[1].data = data.expenses;
+        incomeExpensesChart.update();
+
+        // Update Expense Categories Chart
+        expenseCategoriesChart.data.labels = data.categories;
+        expenseCategoriesChart.data.datasets[0].data = data.category_amounts;
+        expenseCategoriesChart.update();
+    } catch (error) {
+        console.error('Error updating chart data:', error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+    updateChartData('monthly');
+});
+</script>
+{% endblock %}

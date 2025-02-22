@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title">Total Balance</h5>
+                <h2 class="card-text">₹{{ "%.2f"|format(total_balance) }}</h2>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5 class="card-title">Total Income (This Month)</h5>
+                <h2 class="card-text">₹{{ "%.2f"|format(monthly_income|default(0)) }}</h2>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <h5 class="card-title">Total Expenses (This Month)</h5>
+                <h2 class="card-text">₹{{ "%.2f"|format(monthly_expenses|default(0)) }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Recent Transactions</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for transaction in transactions %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ transaction.description }}</h6>
+                            <small class="text-{{ 'success' if transaction.type == 'INCOME' else 'danger' }}">
+                                {{ '₹' + "%.2f"|format(transaction.amount) }}
+                            </small>
+                        </div>
+                        <small class="text-muted">{{ transaction.date.strftime('%Y-%m-%d %H:%M') }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Pending Loans</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    {% for loan in loans %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ loan.contact_name }}</h6>
+                            <small class="text-{{ 'danger' if loan.type == 'TAKEN' else 'success' }}">
+                                {{ '₹' + "%.2f"|format(loan.amount) }}
+                            </small>
+                        </div>
+                        <small class="text-muted">Due: {{ loan.due_date.strftime('%Y-%m-%d') }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

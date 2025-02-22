@@ -8,6 +8,8 @@ import io
 import csv
 import zipfile
 from db.schema import db, User, Account, Transaction, Budget, Loan
+from itsdangerous import URLSafeTimedSerializer
+from flask_mail import Mail, Message
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this to a secure secret key
@@ -29,9 +31,50 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 db.init_app(app)
 
+# Mail configuration
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'your-email@gmail.com'  # Replace with your email
+app.config['MAIL_PASSWORD'] = 'your-app-password'     # Replace with your app password
+app.config['MAIL_DEFAULT_SENDER'] = 'your-email@gmail.com'  # Replace with your email
+
+mail = Mail(app)
+serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# Database initialization
+with app.app_context():
+    db.create_all()
+    
+    # Add default categories if they don't exist
+    if not User.query.first():  # Only add if database is empty
+        # Add default income categories
+        income_categories = ['Salary', 'Freelance', 'Investment', 'Rental', 'Other Income']
+        expense_categories = ['Food', 'Transportation', 'Housing', 'Utilities', 'Healthcare', 
+                            'Entertainment', 'Shopping', 'Education', 'Savings', 'Other Expenses']
+        
+        # Create Category table
+        class Category(db.Model):
+            id = db.Column(db.Integer, primary_key=True)
+            name = db.Column(db.String(50), nullable=False)
+            type = db.Column(db.String(20), nullable=False)  # 'INCOME' or 'EXPENSE'
+        
+        db.create_all()
+        
+        # Add categories
+        for category in income_categories:
+            if not Category.query.filter_by(name=category, type='INCOME').first():
+                db.session.add(Category(name=category, type='INCOME'))
+        
+        for category in expense_categories:
+            if not Category.query.filter_by(name=category, type='EXPENSE').first():
+                db.session.add(Category(name=category, type='EXPENSE'))
+        
+        db.session.commit()
 
 # Routes
 @app.route('/')
@@ -67,20 +110,30 @@ def register():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        confirm_password = request.form.get('confirmPassword')
         email = request.form.get('email')
         
-        if not username or not password or not email:
-            flash('All fields are required')
+        # Validate required fields
+        if not username or not password or not confirm_password or not email:
+            flash('All fields are required', 'danger')
             return redirect(url_for('register'))
         
+        # Validate password match
+        if password != confirm_password:
+            flash('Passwords do not match', 'danger')
+            return redirect(url_for('register'))
+        
+        # Check username availability
         if User.query.filter_by(username=username).first():
-            flash('Username already exists')
+            flash('Username already exists', 'danger')
             return redirect(url_for('register'))
             
+        # Check email availability
         if User.query.filter_by(email=email).first():
-            flash('Email already exists')
+            flash('Email already exists', 'danger')
             return redirect(url_for('register'))
         
+        # Create new user
         user = User(
             username=username,
             password_hash=generate_password_hash(password),
@@ -89,7 +142,7 @@ def register():
         db.session.add(user)
         db.session.commit()
         
-        flash('Registration successful! Please login.')
+        flash('Registration successful! Please login.', 'success')
         return redirect(url_for('login'))
         
     return render_template('register.html')
@@ -475,12 +528,10 @@ def analytics():
     try:
         # Get total income and expenses
         total_income = db.session.query(db.func.sum(Transaction.amount))\
-            .filter(Transaction.user_id == current_user.id, Transaction.type == 'INCOME')\
-            .scalar() or 0.0
+            .filter(Transaction.user_id == current_user.id, Transaction.type == 'INCOME').scalar() or 0.0
         
         total_expenses = db.session.query(db.func.sum(Transaction.amount))\
-            .filter(Transaction.user_id == current_user.id, Transaction.type == 'EXPENSE')\
-            .scalar() or 0.0
+            .filter(Transaction.user_id == current_user.id, Transaction.type == 'EXPENSE').scalar() or 0.0
         
         # Calculate net savings and savings rate
         net_savings = total_income - total_expenses
@@ -548,6 +599,75 @@ def logout():
     logout_user()
     flash('Logged out successfully!')
     return redirect(url_for('login'))
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        identifier = request.form.get('identifier')
+        
+        # Check if identifier is email or username
+        user = User.query.filter(
+            (User.email == identifier) | (User.username == identifier)
+        ).first()
+        
+        if user:
+            # Generate token
+            token = serializer.dumps(user.email, salt='password-reset-salt')
+            
+            # Create password reset link
+            reset_url = url_for('reset_password', token=token, _external=True)
+            
+            # Create email
+            subject = 'Password Reset Request'
+            body = f'''To reset your password, visit the following link:
+{reset_url}
+
+If you did not make this request, please ignore this email.
+'''
+            msg = Message(subject, recipients=[user.email], body=body)
+            
+            try:
+                mail.send(msg)
+                flash('Password reset instructions have been sent to your email.', 'success')
+            except Exception as e:
+                flash('Error sending email. Please try again later.', 'danger')
+                app.logger.error(f'Error sending email: {str(e)}')
+        else:
+            # Don't reveal if user exists or not
+            flash('If an account exists with that email/username, you will receive password reset instructions.', 'info')
+        
+        return redirect(url_for('login'))
+    
+    return render_template('forgot_password.html')
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    try:
+        email = serializer.loads(token, salt='password-reset-salt', max_age=3600)  # Token expires in 1 hour
+    except:
+        flash('The password reset link is invalid or has expired.', 'danger')
+        return redirect(url_for('login'))
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if new_password != confirm_password:
+            flash('Passwords do not match.', 'danger')
+        else:
+            # Update password
+            user.password_hash = generate_password_hash(new_password)
+            db.session.commit()
+            flash('Your password has been updated! You can now login with your new password.', 'success')
+            return redirect(url_for('login'))
+    
+    return render_template('reset_password.html', token=token)
 
 # Helper functions
 def get_total_balance(user_id):
@@ -764,6 +884,4 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif'}
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(debug=True)
